@@ -24,7 +24,8 @@ def main():
     # ADD MENU ITEMS HERE
     menu_items = [
         MenuItem("Pico Bird", "pico_bird.py"),
-        MenuItem("Corporate BS", "corporate_bs.py")
+        MenuItem("Corporate BS", "corporate_bs.py"),
+        MenuItem("Blank screen", "blank.py")
     ]
 
     selected_item = menu_items[0]
@@ -44,6 +45,10 @@ def main():
         display.set_pen(background)
         display.clear()
         
+        display.set_pen(white)
+        display.text("X - Change", 10, 115, 100, 2)
+        display.text("A - Run", 160, 115, 100, 2)
+        
         counter = 0
         for item in menu_items:
             if item == selected_item:
@@ -58,5 +63,3 @@ def main():
 main()
 if file_to_execute != "":
     exec(open(file_to_execute).read())
-
-
