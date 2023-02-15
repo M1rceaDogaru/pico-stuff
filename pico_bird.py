@@ -16,6 +16,7 @@ last_time = utime.ticks_ms()
 _pixel_skip = const(0)
 
 button_x = Button(14)
+button_a = Button(12)
 
 # Pens for drawing in color
 background = display.create_pen(135, 206, 235)        
@@ -24,7 +25,7 @@ red = display.create_pen(255, 0, 0)
 dark_green = display.create_pen(34, 139, 34)
 light_green = display.create_pen(124, 252, 0)
 
-bird = [
+bird_sprite = [
 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
 [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -51,6 +52,8 @@ class Bird:
     def __init__(self, x, y, w, h, angle, pen, pixels):
         self.x = x
         self.y = y
+        self.w = w
+        self.h = h
         self.angle = angle
         self.pen = pen
         self.buffer = []
@@ -89,11 +92,18 @@ class Obstacle:
         self.gap = gap
         self.thickness = thickness
         self.pen = pen
+        self.cleared = False
     
     def render(self):
         display.set_pen(self.pen)
         display.rectangle(self.x - self.thickness, 0, self.thickness, self.y - self.gap)
         display.rectangle(self.x - self.thickness, self.y + self.gap, self.thickness, height - self.y + self.gap)
+        
+    def is_collided(self, x, y):
+        anchor_x = self.x - self.thickness
+        collides_horizontally = x > anchor_x and x < anchor_x + self.thickness
+        
+        return (collides_horizontally and y < self.y - self.gap) or (collides_horizontally and y > self.y + self.gap)
         
 class Tree:
     def __init__(self, x, w, pen):
@@ -109,14 +119,10 @@ class Tree:
     def reset_height(self):
         self.height = random.randint(40, 100)
             
-bird = Bird(40, int(height/2), 16, 16, 0, red, bird)
-obstacles = [
-    Obstacle(200, random.randint(15, 120), 20, 20, dark_green),
-    Obstacle(280, random.randint(15, 120), 20, 20, dark_green),
-    Obstacle(360, random.randint(15, 120), 20, 20, dark_green) 
-]
-
+bird = {}
+obstacles = []
 trees = []
+
 for tree_index in range(0, 9):
     trees.append(Tree(int(tree_index * 30), 30, light_green))
 
@@ -127,18 +133,49 @@ _jv = const(-5)
 _obstacle_speed = const(100)
 _background_speed = const(60)
 
+_state_main = const(1)
+_state_running = const(2)
+_state_end = const(3)
+
 score = 0
+game_state = _state_main
+
+@micropython.native
+def start_game():
+    global bird, obstacles, game_state, score
+    
+    bird = Bird(40, int(height/2), 16, 16, 0, red, bird_sprite)
+    
+    obstacles = [
+        Obstacle(200, random.randint(15, 120), 20, 20, dark_green),
+        Obstacle(280, random.randint(15, 120), 20, 20, dark_green),
+        Obstacle(360, random.randint(15, 120), 20, 20, dark_green) 
+    ]
+    
+    score = 0
+    game_state = _state_running
 
 @micropython.native
 def update_obstacles():
-    global score
+    global score, game_state
+    
+    bird_anchor_x = bird.x + (bird.w / 2)
+    bird_anchor_y = bird.y + (bird.h / 2)
     
     for obstacle in obstacles:
         obstacle.x -= int(delta * _obstacle_speed)
+        if obstacle.is_collided(bird.x, bird.y):
+            game_state = _state_end
+            break
+        
+        if not obstacle.cleared and bird.x > obstacle.x:
+            obstacle.cleared = True
+            score += 1            
+        
         if obstacle.x < -20:
             obstacle.x = 260
             obstacle.y = random.randint(15, 120)
-            score += 1
+            obstacle.cleared = False
 
 @micropython.native
 def update_trees():
@@ -146,10 +183,10 @@ def update_trees():
         tree.x -= int(delta * _background_speed)
         if tree.x <= -30:
             tree.x = 240 + (tree.x + 30)
-            tree.reset_height() 
+            tree.reset_height()
 
 @micropython.native
-def logic():
+def run_logic():
     if button_x.read():
         bird.velocity = _jv
         
@@ -170,7 +207,7 @@ def logic():
     update_obstacles()
 
 @micropython.native    
-def render():
+def run_render():
     for tree in trees:
         tree.render()
     
@@ -186,6 +223,43 @@ def render():
     display.update()    
     
 @micropython.native
+def main_logic():
+    if button_a.read():
+        start_game()
+
+@micropython.native
+def main_render():
+    for tree in trees:
+        tree.render()
+        
+    display.set_pen(white)
+    display.text("PICO BIRD", 60, 30, 130, 3)
+    display.text("A - Start", 80, 80, 130, 2)
+    
+    display.update()
+
+@micropython.native
+def end_logic():
+    if button_a.read():
+        start_game()
+
+@micropython.native
+def end_render():
+    for tree in trees:
+        tree.render()
+    for obstacle in obstacles:
+        obstacle.render()
+    
+    bird.render()
+    
+    display.set_pen(white)
+    display.text("Game over", 80, 15, 130, 3)
+    display.text("Score: " + str(score), 60, 70, 180, 3)
+    display.text("A - Restart", 70, 100, 130, 2)
+    
+    display.update()
+        
+@micropython.native
 def main_loop():
     global last_time, delta
     new_time = utime.ticks_ms()
@@ -195,10 +269,17 @@ def main_loop():
     display.set_pen(background)
     display.clear()
     
-    logic()
-    render()    
+    if game_state == _state_running:
+        run_logic()
+        run_render()
+    elif game_state == _state_main:
+        main_logic()
+        main_render()
+    else:
+        end_logic()
+        end_render()
     
     #gc.collect()
 
 while True:
-    main_loop()
+    main_loop()    
