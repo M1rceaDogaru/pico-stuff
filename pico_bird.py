@@ -20,7 +20,7 @@ button_a = Button(12)
 
 # Pens for drawing in color
 background = display.create_pen(135, 206, 235)        
-white = display.create_pen(255, 255, 255)       
+white = display.create_pen(20, 20, 20)       
 red = display.create_pen(255, 0, 0)
 dark_green = display.create_pen(34, 139, 34)
 light_green = display.create_pen(124, 252, 0)
@@ -136,13 +136,40 @@ _background_speed = const(60)
 _state_main = const(1)
 _state_running = const(2)
 _state_end = const(3)
+_hi_score_filename = const("pico_bird_hi_score.txt")
 
 score = 0
+hi_score = 0
+has_hi_score = False
+
+lives = 3
 game_state = _state_main
+
+def read_hi_score():
+    global hi_score
+    
+    try:
+        hi_score_file = open(_hi_score_filename, "r")
+        hi_score_raw = hi_score_file.read()
+        if hi_score_raw != "":
+            hi_score = int(hi_score_raw)
+        hi_score_file.close()
+    except OSError:
+        pass
+        
+def write_hi_score():
+    global hi_score
+    if score < hi_score:
+        return
+    
+    hi_score = score
+    hi_score_file = open(_hi_score_filename, "w")
+    hi_score_file.write(str(hi_score))
+    hi_score_file.close()
 
 @micropython.native
 def start_game():
-    global bird, obstacles, game_state, score
+    global bird, obstacles, game_state, score, lives
     
     bird = Bird(40, int(height/2), 16, 16, 0, red, bird_sprite)
     
@@ -152,8 +179,37 @@ def start_game():
         Obstacle(360, random.randint(15, 120), 20, 20, dark_green) 
     ]
     
-    score = 0
+    if lives == 0:
+        score = 0
+        lives = 3
+        
     game_state = _state_running
+   
+@micropython.native
+def end_game():
+    global lives, game_state, has_hi_score
+    lives -= 1
+    if lives == 0:
+        has_hi_score = score > hi_score
+        write_hi_score()
+    
+    game_state = _state_end
+    
+@micropython.native
+def render_lives():
+    if lives == 0:
+        return
+    
+    display.set_pen(red)
+    center_y = 10
+    for life in range(lives):
+        center_x = 10 + life * 12
+        display.triangle(center_x - 5, center_y - 5, center_x + 5, center_y - 5, center_x, center_y + 5)
+
+@micropython.native
+def render_hi_score():
+    display.set_pen(white)
+    display.text("HI: " + str(hi_score), 5, 120, 100, 2)
 
 @micropython.native
 def update_obstacles():
@@ -165,7 +221,7 @@ def update_obstacles():
     for obstacle in obstacles:
         obstacle.x -= int(delta * _obstacle_speed)
         if obstacle.is_collided(bird.x, bird.y):
-            game_state = _state_end
+            end_game()
             break
         
         if not obstacle.cleared and bird.x > obstacle.x:
@@ -220,6 +276,9 @@ def run_render():
     #display.text("FPS: " + str(int(1/delta)), 10, 10, 50, 1)
     display.text("Score: " + str(score), 140, 2, 100, 2)
     
+    render_lives()
+    render_hi_score()
+    
     display.update()    
     
 @micropython.native
@@ -235,6 +294,7 @@ def main_render():
     display.set_pen(white)
     display.text("PICO BIRD", 60, 30, 130, 3)
     display.text("A - Start", 80, 80, 130, 2)
+    render_hi_score()
     
     display.update()
 
@@ -253,10 +313,19 @@ def end_render():
     bird.render()
     
     display.set_pen(white)
-    display.text("Game over", 80, 15, 130, 3)
-    display.text("Score: " + str(score), 60, 70, 180, 3)
-    display.text("A - Restart", 70, 100, 130, 2)
-    
+    if lives == 0:
+        display.text("Game over", 80, 15, 130, 3)
+        if has_hi_score == True:
+            display.text("NEW HI: " + str(score), 40, 70, 180, 3)
+        else:
+            display.text("Score: " + str(score), 60, 70, 180, 3)            
+        display.text("A - Restart", 70, 100, 130, 2)
+    else:
+        display.text(str(lives) + " lives left", 30, 15, 200, 3)
+        display.text("Score: " + str(score), 60, 70, 180, 3)
+        display.text("A - Continue", 70, 100, 130, 2)
+        
+    render_hi_score()    
     display.update()
         
 @micropython.native
@@ -281,5 +350,6 @@ def main_loop():
     
     #gc.collect()
 
+read_hi_score()
 while True:
     main_loop()    
